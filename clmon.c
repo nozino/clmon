@@ -34,6 +34,8 @@ static unsigned int mem_stats[2][10] = {0};
 #define CPU_SIQ 6
 #define CPU_HIQ 5
 
+static char *mem_stat_names[4] = {"MemTotal", "MemFree", "Buffers", "Cached"};
+
 int remove_blanks(char *str) {
   char *tmp = str;
   if (str == NULL) {
@@ -61,7 +63,6 @@ int remove_blanks(char *str) {
 int get_value(const char *path, const char *key, const char *delim, char *value) {
   FILE *p_file;
   char buf[1024] = {0};
-  //  const unsigned int key_size = sizeof(key);
   char key_of_line[512] = {0};
 
   char *tmp = NULL;
@@ -104,6 +105,7 @@ int get_value(const char *path, const char *key, const char *delim, char *value)
 }
 
 #define CPU_STAT "/proc/stat"
+#define MEM_STAT "/proc/meminfo"
 
 int get_cpu_stat(unsigned int *stats) {
   FILE *pf;
@@ -143,6 +145,57 @@ int get_cpu_stat(unsigned int *stats) {
   return 0;
 }
 
+int get_mem_stat(unsigned int *stats) {
+  FILE *pf;
+  char buf[1024] = {0};
+
+  char *tmp = NULL;
+  char *saveptr = NULL;
+
+  int i = 0;
+
+  char key_of_line[512] = {0};
+  char value[512];
+
+  if (stats == NULL) {
+    perror("invalid args.");
+    return -1;
+  }
+
+  pf = fopen(MEM_STAT, "r");
+  if (pf == NULL) {
+    fprintf(stderr, "cannot open file., path=%s", MEM_STAT);
+  }
+
+  while (!feof(pf)) {
+    fgets(buf, 1024, pf);
+
+    tmp = strtok_r(buf, ":", &saveptr);
+    strcpy(key_of_line, tmp);
+
+    remove_blanks(key_of_line);
+
+    if (strcmp(key_of_line, "") == 0) {
+      continue;
+    }
+
+    for (i = 0; i < 4; i++) {
+      if (strcmp(key_of_line, mem_stat_names[i]) == 0) {
+	tmp = strtok_r(saveptr, " ", &saveptr);
+	strcpy(value, tmp);
+
+	printf("key=%s, value=%s\n", key_of_line, value);
+	stats[i] = (unsigned int)atoi(value);
+	break;
+      }
+    }
+  }
+
+  fclose(pf);
+
+  return 0;
+}
+
 void print_stat(unsigned int b[][10]){
   int i, j;
 
@@ -159,8 +212,8 @@ void print_stat(unsigned int b[][10]){
  * @interval second
  **/
 int get_cpu_usage(unsigned int cpu_stats[][10], unsigned int now, cpu_usage *cu) {
-  cpu_usage cu_a;
-  cpu_usage cu_b;
+  //  cpu_usage cu_a;
+  //  cpu_usage cu_b;
 
   unsigned int total_a = 0;
   unsigned int total_b = 0;
@@ -209,6 +262,10 @@ int get_stats(const unsigned int now) {
   
   if (get_cpu_stat(&cpu_stats[now][0]) < 0) {
     err(2, "cannot get cpu stats.");
+  }
+
+  if (get_mem_stat(&mem_stats[now][0]) < 0) {
+    err(2, "cannot get mem stats.");
   }
 }
 
