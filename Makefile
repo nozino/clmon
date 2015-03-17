@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-c -Wall
+CFLAGS=-g -c -Wall
 LDFLAGS=
 SOURCES=clmon.c
 OBJECTS=$(SOURCES:.c=.o)

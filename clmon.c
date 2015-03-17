@@ -23,6 +23,17 @@ typedef struct _mem_usage {
   int free;
 } mem_usage;
 
+static unsigned int cpu_stats[2][10] = {0};
+static unsigned int mem_stats[2][10] = {0};
+
+
+#define CPU_USR 0
+#define CPU_SYS 2
+#define CPU_IDL 3
+#define CPU_WAI 4
+#define CPU_SIQ 6
+#define CPU_HIQ 5
+
 int remove_blanks(char *str) {
   char *tmp = str;
   if (str == NULL) {
@@ -94,7 +105,7 @@ int get_value(const char *path, const char *key, const char *delim, char *value)
 
 #define CPU_STAT "/proc/stat"
 
-int get_cpu_stat(cpu_usage *cu) {
+int get_cpu_stat(unsigned int *stats) {
   FILE *pf;
   char buf[1024] = {0};
 
@@ -102,9 +113,8 @@ int get_cpu_stat(cpu_usage *cu) {
   char *saveptr = NULL;
 
   int i = 0;
-  unsigned int stats[6] = {0};
 
-  if (cu == NULL) {
+  if (stats == NULL) {
     perror("invalid args.");
     return -1;
   }
@@ -120,32 +130,35 @@ int get_cpu_stat(cpu_usage *cu) {
     err(2, "cannot get stat.");
   }
 
-  printf("HERE, buf=%s\n", buf);
-  tmp = strtok_r(buf, " ", &saveptr);
-  for (i = 0; i < 6; i++) {
-    tmp = strtok_r(NULL, " ", &saveptr);
-    printf("tmp=%s\n", tmp);
-    stats[i] = atoi(tmp);
-    printf("stats[%d]=%d\n", i, stats[i]);
-  }
+  //  printf("buf=%s\n", buf);
 
-  cu->usr = stats[0];
-  cu->sys = stats[2];
-  cu->idl = stats[3];
-  cu->wai = stats[4];
-  cu->hiq = stats[5];
-  cu->siq = stats[6];
+  tmp = strtok_r(buf, " ", &saveptr);
+  for (i = 0; i <= 6; i++) {
+    tmp = strtok_r(NULL, " ", &saveptr);
+    stats[i] = atoi(tmp);
+  }
 
   fclose(pf);
 
-  return 1;
+  return 0;
+}
+
+void print_stat(unsigned int b[][10]){
+  int i, j;
+
+  for (i = 0; i < 2; i++) {
+    for (j = 0;j < 10; j++) {
+      printf("b[%d][%d]=%d\n", i, j, b[i][j]);
+    }
+  }
+  
 }
 
 /**
  * @cu
  * @interval second
  **/
-int get_cpu_usage(cpu_usage *cu, const unsigned int interval) {
+int get_cpu_usage(unsigned int cpu_stats[][10], unsigned int now, cpu_usage *cu) {
   cpu_usage cu_a;
   cpu_usage cu_b;
 
@@ -153,34 +166,26 @@ int get_cpu_usage(cpu_usage *cu, const unsigned int interval) {
   unsigned int total_b = 0;
   unsigned int total = 0;
 
+  unsigned int before = 0;
 
-  if (cu == NULL) {
-    err(10, "invalid args.");
+  if (cu == NULL || now < 0 || now > 1 || cpu_stats == NULL) {
+    err(10, "invalid args. now=%d", now);
   }
 
-  if (get_cpu_stat(&cu_a) < 0) {
-    err(2, "cannot get cpu stat.");
-  }
+  before = now == 1 ? 0 : 1;
 
-  sleep(interval);
 
-  if (get_cpu_stat(&cu_b) < 0) {
-    err(2, "cannot get cpu stat.");
-  }
-
-  cu->usr = cu_b.usr - cu_a.usr;
-  cu->sys = cu_b.sys - cu_a.sys;
-  cu->wai = cu_b.wai - cu_a.wai;
-  cu->idl = cu_b.idl - cu_a.idl;
-  cu->siq = cu_b.siq - cu_a.siq;
-  cu->hiq = cu_b.hiq - cu_a.hiq;
-
-  total_a = cu_a.usr + cu_a.sys + cu_a.wai + cu_a.hiq + cu_a.siq;
-  total_b = cu_b.usr + cu_b.sys + cu_b.wai + cu_b.hiq + cu_b.siq;
+  total_a = cpu_stats[before][0] + cpu_stats[before][1] + cpu_stats[before][2] + cpu_stats[before][3] + cpu_stats[before][4] + cpu_stats[before][5] + cpu_stats[before][6];
+  total_b = cpu_stats[now][0] + cpu_stats[now][1] + cpu_stats[now][2] + cpu_stats[now][3] + cpu_stats[now][4] + cpu_stats[now][5] + cpu_stats[now][6];
 
   total = total_b - total_a;
 
-  printf("total=%d, total_a=%d, total_b=%d\n", total, total_a, total_b);
+  cu->usr = (float)(((float)(cpu_stats[now][CPU_USR] - cpu_stats[before][CPU_USR]) / total) * 100.0);
+  cu->sys = (float)(((float)(cpu_stats[now][CPU_SYS] - cpu_stats[before][CPU_SYS]) / total) * 100.0);
+  cu->wai = (float)(((float)(cpu_stats[now][CPU_WAI] - cpu_stats[before][CPU_WAI]) / total) * 100.0);
+  cu->idl = (float)(((float)(cpu_stats[now][CPU_IDL] - cpu_stats[before][CPU_IDL]) / total) * 100.0);
+  cu->siq = (float)(((float)(cpu_stats[now][CPU_SIQ] - cpu_stats[before][CPU_SIQ]) / total) * 100.0);
+  cu->hiq = (float)(((float)(cpu_stats[now][CPU_HIQ] - cpu_stats[before][CPU_HIQ]) / total) * 100.0);
 
   return 0;
 }
@@ -197,14 +202,27 @@ int get_mem_usage(mem_usage *mu, int interval) {
   return 0;
 }
 
+int get_stats(const unsigned int now) {
+  if (now < 0 || now > 1) {
+    err(1, "invalid args. now=%d", now);
+  }
+  
+  if (get_cpu_stat(&cpu_stats[now][0]) < 0) {
+    err(2, "cannot get cpu stats.");
+  }
+}
+
 int main(int argc, char **argv) {
   char value[1024] = {0};
   int retval = 0;
   char path[100] = "/proc/cpuinfo";
   char key[100] = "model name";
 
-  cpu_usage *cu;
-  mem_usage *mu;
+  cpu_usage cu;
+  mem_usage mu;
+
+  unsigned int now = 0;
+  unsigned int interval = 1; /* 1 second */
 
   retval = get_value(path, "model name", ":", value);
   if (retval < 0) {
@@ -217,26 +235,25 @@ int main(int argc, char **argv) {
 
   printf("path=%s, key=%s, value=%s\n", path, key, value);
 
-  cu = (cpu_usage *)malloc(sizeof(cpu_usage));
-  if (cu == NULL) {
-    err(10, "cannot alloc for cpu usage.");
+  for (;;) {
+
+    if (get_stats(now) < 0) {
+      err(1, "cannot get stats.");
+    }
+
+    //    print_stat(cpu_stats);
+
+    get_cpu_usage(cpu_stats, now, &cu);
+
+    printf("cpu_usage.usr=%.2f, sys=%.2f, wai=%.2f, idl=%.2f, siq=%.2f, hiq=%.2f.\n", cu.usr, cu.sys, cu.wai, cu.idl, cu.siq, cu.hiq);
+
+    sleep(interval);
+
+    now = now == 1 ? 0 : 1;
   }
 
-  if (get_cpu_usage(cu, 1) != 0) {
-    err(10, "cannot get cpu usage.");
-  }
-
-  printf("cpu_usage.usr=%.2f, sys=%.2f, wai=%.2f, idl=%.2f.\n", cu->usr, cu->sys, cu->wai, cu->idl);
   
-  mu = (mem_usage *)malloc(sizeof(mem_usage));
-  if (mu == NULL) {
-    err(10, "cannot alloc for memory usage.");
-  }
+  printf("mem_usage.used=%d.\n", mu.used);
 
-  if (get_mem_usage(mu, 1) != 0) {
-    err(10, "cannot get memory usage.");
-  }
-
-  printf("mem_usage.used=%d.\n", mu->used);
   return 0;
 }
