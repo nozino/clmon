@@ -19,12 +19,12 @@ typedef struct _cpu_usage {
 typedef struct _mem_usage {
   int used;
   int buff;
-  int cache;
+  int cach;
   int free;
 } mem_usage;
 
 static unsigned int cpu_stats[2][10] = {0};
-static unsigned int mem_stats[2][10] = {0};
+// static unsigned int mem_stats[2][10] = {0};
 
 
 #define CPU_USR 0
@@ -34,6 +34,13 @@ static unsigned int mem_stats[2][10] = {0};
 #define CPU_SIQ 6
 #define CPU_HIQ 5
 
+#define MEM_TOTAL 0
+#define MEM_FREE 1
+#define MEM_BUFF 2
+#define MEM_CACH 3
+
+static cpu_usage g_cu;
+static mem_usage g_mu;
 static char *mem_stat_names[4] = {"MemTotal", "MemFree", "Buffers", "Cached"};
 
 int remove_blanks(char *str) {
@@ -145,7 +152,7 @@ int get_cpu_stat(unsigned int *stats) {
   return 0;
 }
 
-int get_mem_stat(unsigned int *stats) {
+int get_mem_stat(mem_usage *mu) {
   FILE *pf;
   char buf[1024] = {0};
 
@@ -157,7 +164,9 @@ int get_mem_stat(unsigned int *stats) {
   char key_of_line[512] = {0};
   char value[512];
 
-  if (stats == NULL) {
+  unsigned int stats[10] = {0};
+
+  if (mu == NULL) {
     perror("invalid args.");
     return -1;
   }
@@ -184,12 +193,16 @@ int get_mem_stat(unsigned int *stats) {
 	tmp = strtok_r(saveptr, " ", &saveptr);
 	strcpy(value, tmp);
 
-	printf("key=%s, value=%s\n", key_of_line, value);
 	stats[i] = (unsigned int)atoi(value);
 	break;
       }
     }
   }
+
+  mu->free = stats[MEM_FREE];
+  mu->buff = stats[MEM_BUFF];
+  mu->cach = stats[MEM_CACH];
+  mu->used = stats[MEM_TOTAL] - stats[MEM_FREE] - stats[MEM_BUFF] - stats[MEM_CACH];
 
   fclose(pf);
 
@@ -264,7 +277,7 @@ int get_stats(const unsigned int now) {
     err(2, "cannot get cpu stats.");
   }
 
-  if (get_mem_stat(&mem_stats[now][0]) < 0) {
+  if (get_mem_stat(&g_mu) < 0) {
     err(2, "cannot get mem stats.");
   }
 }
@@ -275,8 +288,8 @@ int main(int argc, char **argv) {
   char path[100] = "/proc/cpuinfo";
   char key[100] = "model name";
 
-  cpu_usage cu;
-  mem_usage mu;
+  //  cpu_usage cu;
+  //  mem_usage mu;
 
   unsigned int now = 0;
   unsigned int interval = 1; /* 1 second */
@@ -293,24 +306,19 @@ int main(int argc, char **argv) {
   printf("path=%s, key=%s, value=%s\n", path, key, value);
 
   for (;;) {
-
     if (get_stats(now) < 0) {
       err(1, "cannot get stats.");
     }
 
-    //    print_stat(cpu_stats);
+    get_cpu_usage(cpu_stats, now, &g_cu);
 
-    get_cpu_usage(cpu_stats, now, &cu);
-
-    printf("cpu_usage.usr=%.2f, sys=%.2f, wai=%.2f, idl=%.2f, siq=%.2f, hiq=%.2f.\n", cu.usr, cu.sys, cu.wai, cu.idl, cu.siq, cu.hiq);
+    printf("cpu_usage.usr=%.2f, sys=%.2f, wai=%.2f, idl=%.2f, siq=%.2f, hiq=%.2f.\n", g_cu.usr, g_cu.sys, g_cu.wai, g_cu.idl, g_cu.siq, g_cu.hiq);
+    printf("mem_usage.used=%d, buff=%d, cach=%d, free=%d.\n", g_mu.used, g_mu.buff, g_mu.cach, g_mu.free);
 
     sleep(interval);
 
     now = now == 1 ? 0 : 1;
   }
-
-  
-  printf("mem_usage.used=%d.\n", mu.used);
 
   return 0;
 }
