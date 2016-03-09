@@ -33,8 +33,30 @@ typedef struct _disk_usage {
   int write;
 } disk_usage;
 
-static unsigned int cpu_stats[2][10] = {0};
-// static unsigned int mem_stats[2][10] = {0};
+typedef struct _disk_stat {
+  char name[10];
+  int read;
+  int write;
+} disk_stat;
+
+typedef struct _net_stat {
+  char name[10];
+  int recieve;
+  int transmit;
+} net_stat;
+
+#define DISK_STAT_MAX 10
+#define NET_STAT_MAX 10
+
+#define CPU_STAT "/proc/stat"
+#define MEM_STAT "/proc/meminfo"
+#define DISK_STAT "/proc/diskstats"
+#define NET_STAT "/proc/net/dev"
+
+static unsigned int cpu_stat[10];
+static unsigned int mem_stat[10];
+static disk_stat disk_stats[DISK_STAT_MAX];
+static net_stat net_stats[NET_STAT_MAX];
 
 #define CPU_USR 0
 #define CPU_SYS 2
@@ -48,11 +70,7 @@ static unsigned int cpu_stats[2][10] = {0};
 #define MEM_BUFF 2
 #define MEM_CACH 3
 
-static cpu_usage g_cu;
-static mem_usage g_mu;
 static char *mem_stat_names[4] = {"MemTotal", "MemFree", "Buffers", "Cached"};
-
-static unsigned int g_interval = 0; /* second */
 
 void print_usages() {
   printf("cmd [options] interval\n");
@@ -148,11 +166,6 @@ int get_value(const char *path, const char *key, const char *delim, char *value)
   return 1;
 }
 
-#define CPU_STAT "/proc/stat"
-#define MEM_STAT "/proc/meminfo"
-#define DISK_STAT "/proc/diskstats"
-#define NET_STAT "/proc/net/dev"
-
 int get_cpu_stat(unsigned int *stats) {
   FILE *pf;
   char buf[1024] = {0};
@@ -189,7 +202,7 @@ int get_cpu_stat(unsigned int *stats) {
   return 0;
 }
 
-int get_mem_stat(mem_usage *mu) {
+int get_mem_stat(unsigned int *stat) {
   FILE *pf;
   char buf[1024] = {0};
 
@@ -201,16 +214,9 @@ int get_mem_stat(mem_usage *mu) {
   char key_of_line[512] = {0};
   char value[512];
 
-  unsigned int stats[10] = {0};
-
-  if (mu == NULL) {
-    perror("invalid args.");
-    return -1;
-  }
-
   pf = fopen(MEM_STAT, "r");
   if (pf == NULL) {
-    fprintf(stderr, "cannot open file., path=%s", MEM_STAT);
+    cl_log("cannot open file., path=%s", MEM_STAT);
   }
 
   while (!feof(pf)) {
@@ -230,16 +236,11 @@ int get_mem_stat(mem_usage *mu) {
 	tmp = strtok_r(saveptr, " ", &saveptr);
 	strcpy(value, tmp);
 
-	stats[i] = (unsigned int)atoi(value);
+	stat[i] = (unsigned int)atoi(value);
 	break;
       }
     }
   }
-
-  mu->free = stats[MEM_FREE];
-  mu->buff = stats[MEM_BUFF];
-  mu->cach = stats[MEM_CACH];
-  mu->used = stats[MEM_TOTAL] - stats[MEM_FREE] - stats[MEM_BUFF] - stats[MEM_CACH];
 
   fclose(pf);
 
@@ -253,22 +254,17 @@ int get_disk_stat(unsigned int *stats) {
   char *tmp = NULL;
   char *saveptr = NULL;
 
-  //  int i = 0;
-
-  //  if (stats == NULL) {
-  //    perror("invalid args.");
-  //    return -1;
-  //  }
+  unsigned int i = 0;
 
   pf = fopen(DISK_STAT, "r");
   if (pf == NULL) {
-    fprintf(stderr, "cannot open file., path=%s", DISK_STAT);
+    cl_err("cannot open file., path=%s", DISK_STAT);
   }
 
   while (fgets(buf, 1024, pf) > 0) {
     if (strlen(buf) <= 0) {
       fclose(pf);
-      err(2, "cannot get stat.");
+      cl_err("cannot get stat.");
     }
 
     /*
@@ -294,20 +290,27 @@ int get_disk_stat(unsigned int *stats) {
     strtok_r(NULL, " ", &saveptr);
 
     tmp = strtok_r(NULL, " ", &saveptr);
-    printf("device name = %s\n", tmp);
+    strcpy(disk_stats[i].name, tmp);
 
     strtok_r(NULL, " ", &saveptr);
     strtok_r(NULL, " ", &saveptr);
 
     tmp = strtok_r(NULL, " ", &saveptr);
-    printf("sectors read = %d\n", atoi(tmp));
+    disk_stats[i].read = atoi(tmp);
 
     strtok_r(NULL, " ", &saveptr);
     strtok_r(NULL, " ", &saveptr);
     strtok_r(NULL, " ", &saveptr);
 
     tmp = strtok_r(NULL, " ", &saveptr);
-    printf("sectors write = %d\n", atoi(tmp));
+    disk_stats[i].write = atoi(tmp);
+
+    if (i < DISK_STAT_MAX) {
+      i++;
+    } else {
+      cl_err("disk count is bigger then the max count of buffer.");
+      break;
+    }
   }
 
   fclose(pf);
@@ -322,12 +325,7 @@ int get_net_stat(unsigned int *stats) {
   char *tmp = NULL;
   char *saveptr = NULL;
 
-  //  int i = 0;
-
-  //  if (stats == NULL) {
-  //    perror("invalid args.");
-  //    return -1;
-  //  }
+  unsigned int i = 0;
 
   pf = fopen(NET_STAT, "r");
   if (pf == NULL) {
@@ -340,7 +338,7 @@ int get_net_stat(unsigned int *stats) {
   while (fgets(buf, 1024, pf) > 0) {
     if (strlen(buf) <= 0) {
       fclose(pf);
-      err(2, "cannot get stat.");
+      cl_err("cannot get stat.");
     }
 
     strtok_r(buf, " ", &saveptr);
@@ -349,10 +347,10 @@ int get_net_stat(unsigned int *stats) {
       continue;
     }
 
-    printf("device name = %s\n", buf);
+    strcpy(net_stats[i].name, buf);
 
     tmp = strtok_r(NULL, " ", &saveptr);
-    printf("reccieve bytes = %s\n", tmp);
+    net_stats[i].recieve = atoi(tmp);
 
     strtok_r(NULL, " ", &saveptr);
     strtok_r(NULL, " ", &saveptr);
@@ -363,7 +361,15 @@ int get_net_stat(unsigned int *stats) {
     strtok_r(NULL, " ", &saveptr);
 
     tmp = strtok_r(NULL, " ", &saveptr);
-    printf("transmit bytes = %s\n", tmp);
+    net_stats[i].transmit = atoi(tmp);
+
+    if (i < NET_STAT_MAX) {
+      i++;
+    } else {
+      cl_err("network interface count is bigger then the max count of buffer.");
+      break;
+    }
+
   }
 
   fclose(pf);
@@ -371,21 +377,12 @@ int get_net_stat(unsigned int *stats) {
   return 0;
 }
 
-void print_stat(unsigned int b[][10]){
-  int i, j;
-
-  for (i = 0; i < 2; i++) {
-    for (j = 0;j < 10; j++) {
-      printf("b[%d][%d]=%d\n", i, j, b[i][j]);
-    }
-  }
-}
-
 /**
  * @cu
  * @interval seconds
  **/
-int get_cpu_usage(unsigned int cpu_stats[][10], unsigned int now, cpu_usage *cu) {
+/*
+int get_cpu_usage(unsigned int cpu_stat[10], unsigned int now, cpu_usage *cu) {
   unsigned int total_a = 0;
   unsigned int total_b = 0;
   unsigned int total = 0;
@@ -413,7 +410,7 @@ int get_cpu_usage(unsigned int cpu_stats[][10], unsigned int now, cpu_usage *cu)
 
   return 0;
 }
-
+*/
 int get_mem_usage(mem_usage *mu, int interval) {
   if (mu == NULL) {
     err(10, "invalid args.");
@@ -426,16 +423,12 @@ int get_mem_usage(mem_usage *mu, int interval) {
   return 0;
 }
 
-int get_stats(const unsigned int now) {
-  if (now < 0 || now > 1) {
-    err(1, "invalid args. now=%d", now);
-  }
-  
-  if (get_cpu_stat(&cpu_stats[now][0]) < 0) {
+int get_stats() {
+  if (get_cpu_stat(cpu_stat) < 0) {
     err(2, "cannot get cpu stats.");
   }
 
-  if (get_mem_stat(&g_mu) < 0) {
+  if (get_mem_stat(mem_stat) < 0) {
     err(2, "cannot get mem stats.");
   }
 
@@ -457,7 +450,7 @@ int init(int argc, char **argv) {
 
     cl_log("interval = %d\n", interval);
     if (interval > 0) {
-      g_interval = interval;
+      //      g_interval = interval;
     } else {
       cl_err("invalid interval");
       print_usages();
@@ -468,44 +461,80 @@ int init(int argc, char **argv) {
   return 0;
 }
 
-int main(int argc, char **argv) {
-  char value[1024] = {0};
-  int retval = 0;
-  char path[100] = "/proc/cpuinfo";
-  char key[100] = "model name";
-  unsigned int now = 0;
+void print_json() {
+  unsigned int i = 0;
 
+  printf("{");
+
+  // cpu
+  printf("\"cpu\":{");
+  printf("\"usr\":%d,\"sys\":%d,\"idl\":%d,\"wai\":%d,\"siq\":%d,\"hiq\":%d", \
+	 cpu_stat[CPU_USR],			      \
+	 cpu_stat[CPU_SYS],			      \
+	 cpu_stat[CPU_IDL],			      \
+	 cpu_stat[CPU_WAI],			      \
+	 cpu_stat[CPU_SIQ],			      \
+	 cpu_stat[CPU_HIQ]			      \
+	 );
+  printf("}");
+  // end of cpu
+
+  // memory
+  printf(",\"memory\":{");
+  printf("\"total\":%d,\"free\":%d,\"buff\":%d,\"cach\":%d", \
+	 mem_stat[MEM_TOTAL],			      \
+	 mem_stat[MEM_FREE],			      \
+	 mem_stat[MEM_BUFF],			      \
+	 mem_stat[MEM_CACH]			      \
+	 );
+  printf("}");
+  // end of memory
+
+  // disk
+  printf(",disk:[");
+
+  while (strlen(disk_stats[i].name) > 0) {
+    if (i > 0) printf(",");
+    printf("{\"name\":\"%s\",\"read\":%d,\"write\":%d}",		      \
+	   disk_stats[i].name,			      \
+	   disk_stats[i].read,			      \
+	   disk_stats[i].write			      \
+	 );
+
+    i++;
+  }
+
+  printf("]");
+  // end of disk
+
+  // net
+  i = 0;
+  printf(",net:[");
+
+  while (strlen(net_stats[i].name) > 0) {
+    if (i > 0) printf(",");
+    printf("{\"name\":\"%s\",\"recieve\":%d,\"transmit\":%d}",		      \
+	   net_stats[i].name,			      \
+	   net_stats[i].recieve,			      \
+	   net_stats[i].transmit			      \
+	 );
+
+    i++;
+  }
+
+  printf("]");
+  // end of net
+
+  printf("}");
+}
+
+int main(int argc, char **argv) {
   if (init(argc, argv) < 0) {
     print_usages();
   }
 
-  retval = get_value(path, "model name", ":", value);
-  if (retval < 0) {
-    fprintf(stderr, "cannot get the value, key=%s", key);
-    return -2;
-  } else if (retval == 1) {
-    printf("cannot find the value. key=%s\n", key);
-    return -3;
-  }
-
-  printf("path=%s, key=%s, value=%s\n", path, key, value);
-
-  for (;;) {
-    if (get_stats(now) < 0) {
-      err(1, "cannot get stats.");
-    }
-
-    get_cpu_usage(cpu_stats, now, &g_cu);
-
-    printf("cpu_usage.usr=%.2f, sys=%.2f, wai=%.2f, idl=%.2f, siq=%.2f, hiq=%.2f.\n", g_cu.usr, g_cu.sys, g_cu.wai, g_cu.idl, g_cu.siq, g_cu.hiq);
-    printf("mem_usage.used=%d, buff=%d, cach=%d, free=%d.\n", g_mu.used, g_mu.buff, g_mu.cach, g_mu.free);
-
-
-    if (g_interval <= 0) break;
-    sleep(g_interval);
-
-    now = now == 1 ? 0 : 1;
-  }
+  get_stats();
+  print_json();
 
   return 0;
 }
